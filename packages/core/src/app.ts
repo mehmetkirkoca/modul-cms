@@ -7,6 +7,10 @@ import { CmsError } from './errors/index.js';
 import { authRoutes } from './api/rest/auth.routes.js';
 import { usersRoutes } from './api/rest/users.routes.js';
 import { pluginsRoutes } from './api/rest/plugins.routes.js';
+import { adminRoutes } from './api/rest/admin.routes.js';
+import { readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 import type { PluginRegistry } from './core/plugin-registry/index.js';
 import type { EventBus } from '@module-cms/sdk';
 
@@ -83,6 +87,26 @@ export async function buildApp(opts: AppOptions) {
   // Routes
   await app.register(authRoutes, { prefix: '/api/v1/auth', redis: opts.redis });
   await app.register(usersRoutes, { prefix: '/api/v1/users', eventBus: opts.eventBus });
+
+  // Admin + plugin active routes
+  await app.register(adminRoutes, { prefix: '/api/v1' });
+
+  // Plugin admin bundle static serving
+  app.get('/plugins/:name/admin.js', async (request, reply) => {
+    const { name } = request.params as { name: string };
+    if (!/^[a-z0-9-]+$/.test(name)) {
+      return reply.status(400).send({ error: 'INVALID_PLUGIN_NAME' });
+    }
+    const bundlePath = path.resolve(
+      process.cwd(),
+      `../../plugins/${name}/admin/dist/index.js`,
+    );
+    if (!existsSync(bundlePath)) {
+      return reply.status(404).send({ error: 'BUNDLE_NOT_FOUND' });
+    }
+    const content = await readFile(bundlePath, 'utf-8');
+    return reply.type('application/javascript').send(content);
+  });
 
   return app;
 }

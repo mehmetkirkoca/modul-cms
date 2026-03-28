@@ -25,6 +25,10 @@ export const pluginRepository = {
     return db.select().from(pluginRegistry);
   },
 
+  async listActive() {
+    return db.select().from(pluginRegistry).where(eq(pluginRegistry.status, 'active'));
+  },
+
   async register(input: RegisterPluginInput): Promise<PluginEntry> {
     const [existing] = await db.select().from(pluginRegistry).where(eq(pluginRegistry.name, input.name)).limit(1);
 
