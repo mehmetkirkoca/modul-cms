@@ -3,6 +3,7 @@ ARCHITECTURE-SPEC.md
 
 # Claude AI settings
 .claude/
+CLAUDE.md
 
 # Dependencies
 node_modules/
