@@ -1,0 +1,3 @@
+[submodule "plugins/content"]
+	path = plugins/content
+	url = https://github.com/mehmetkirkoca/module-plugin-content.git
