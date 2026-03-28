@@ -1,0 +1,64 @@
+version: '3.9'
+
+services:
+  core:
+    build:
+      context: ./packages/core
+      dockerfile: Dockerfile
+    ports:
+      - '3000:3000'   # REST + GraphQL (dış)
+      - '50051:50051' # gRPC (plugin'ler için iç)
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://postgres:postgres@core-db:5432/cms_core
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-me-refresh-in-production}
+      GRPC_PORT: 50051
+      HTTP_PORT: 3000
+    depends_on:
+      core-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - modu-internal
+      - modu-public
+    restart: unless-stopped
+
+  core-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: cms_core
+    volumes:
+      - core-db-data:/var/lib/postgresql/data
+    networks:
+      - modu-internal
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis-data:/data
+    networks:
+      - modu-internal
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  core-db-data:
+  redis-data:
+
+networks:
+  modu-internal:
+    internal: true
+  modu-public:

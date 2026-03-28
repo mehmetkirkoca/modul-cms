@@ -1,0 +1,34 @@
+version: '3.9'
+
+# Geliştirme ortamı — sadece altyapı servisleri (DB, Redis)
+# Core host'ta `pnpm dev` ile çalışır
+
+services:
+  core-db:
+    image: postgres:16-alpine
+    ports:
+      - '5432:5432'
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: cms_core
+    volumes:
+      - core-db-dev-data:/var/lib/postgresql/data
+    networks:
+      - modu-dev
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis-dev-data:/data
+    networks:
+      - modu-dev
+
+volumes:
+  core-db-dev-data:
+  redis-dev-data:
+
+networks:
+  modu-dev:

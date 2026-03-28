@@ -1,0 +1,48 @@
+# Architecture/planning docs (local only)
+ARCHITECTURE-SPEC.md
+
+# Claude AI settings
+.claude/
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# Turbo cache
+.turbo/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Test coverage
+coverage/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Drizzle migrations (generated — tracked in version control)
+# Uncomment if you don't want to track migrations:
+# packages/core/db/migrations/
+
+# Docker volumes (local data)
+docker/data/
+
+# pnpm
+.pnpm-store/

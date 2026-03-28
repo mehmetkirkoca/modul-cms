@@ -1,0 +1,77 @@
+import Fastify from 'fastify';
+import fastifyJwt from '@fastify/jwt';
+import fastifyCookie from '@fastify/cookie';
+import fastifyCors from '@fastify/cors';
+import type { Redis } from 'ioredis';
+import { CmsError } from './errors/index.js';
+import { authRoutes } from './api/rest/auth.routes.js';
+import { usersRoutes } from './api/rest/users.routes.js';
+import { pluginsRoutes } from './api/rest/plugins.routes.js';
+import type { PluginRegistry } from './core/plugin-registry/index.js';
+
+interface AppOptions {
+  redis: Redis;
+  pluginRegistry: PluginRegistry;
+  jwtSecret: string;
+}
+
+export async function buildApp(opts: AppOptions) {
+  const app = Fastify({
+    logger: {
+      level: process.env.LOG_LEVEL ?? 'info',
+      transport: process.env.NODE_ENV === 'development'
+        ? { target: 'pino-pretty' }
+        : undefined,
+    },
+  });
+
+  // Plugins
+  await app.register(fastifyCors, {
+    origin: process.env.CORS_ORIGIN ?? '*',
+    credentials: true,
+  });
+
+  await app.register(fastifyCookie);
+
+  await app.register(fastifyJwt, {
+    secret: opts.jwtSecret,
+  });
+
+  // Global error handler
+  app.setErrorHandler((error, _request, reply) => {
+    if (error instanceof CmsError) {
+      return reply.status(error.status).send(error.toJSON());
+    }
+
+    // Fastify validation error
+    if (error.statusCode === 400) {
+      return reply.status(400).send({
+        error: 'VALIDATION_ERROR',
+        message: error.message,
+      });
+    }
+
+    app.log.error({ err: error }, 'Unhandled error');
+    return reply.status(500).send({
+      error: 'INTERNAL_ERROR',
+      message: 'Internal server error',
+    });
+  });
+
+  // Health check
+  app.get('/health', async () => ({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    version: process.env.npm_package_version ?? '0.1.0',
+  }));
+
+  // Routes
+  await app.register(authRoutes, { prefix: '/api/v1/auth', redis: opts.redis });
+  await app.register(usersRoutes, { prefix: '/api/v1/users' });
+  await app.register(pluginsRoutes, {
+    prefix: '/api/v1/plugins',
+    pluginRegistry: opts.pluginRegistry,
+  });
+
+  return app;
+}

@@ -1,0 +1,116 @@
+syntax = "proto3";
+
+package core;
+
+service CoreAPI {
+  // Users
+  rpc GetUser     (GetUserRequest)   returns (User);
+  rpc ListUsers   (ListUsersRequest) returns (UserList);
+
+  // Permissions
+  rpc CheckPermission (CheckPermissionRequest) returns (PermissionResult);
+  rpc GetUserRoles    (GetUserRolesRequest)    returns (RoleList);
+
+  // Plugin Registry
+  rpc GetPlugin   (GetPluginRequest)   returns (PluginInfo);
+  rpc ListPlugins (ListPluginsRequest) returns (PluginList);
+
+  // System Config
+  rpc GetConfig   (GetConfigRequest)   returns (ConfigValue);
+
+  // Events
+  rpc EmitEvent   (EmitEventRequest)   returns (EmitEventResponse);
+}
+
+// ── Users ────────────────────────────────────────────────────────────────
+
+message GetUserRequest {
+  string id = 1;
+}
+
+message User {
+  string id         = 1;
+  string email      = 2;
+  string name       = 3;
+  string role       = 4;
+  string created_at = 5;
+  string updated_at = 6;
+}
+
+message ListUsersRequest {
+  int32  page     = 1;
+  int32  per_page = 2;
+  string role     = 3;
+}
+
+message UserList {
+  repeated User users = 1;
+  int32         total = 2;
+}
+
+// ── Permissions ──────────────────────────────────────────────────────────
+
+message CheckPermissionRequest {
+  string user_id  = 1;
+  string resource = 2;
+  string action   = 3;
+}
+
+message PermissionResult {
+  bool   allowed = 1;
+  string reason  = 2;
+}
+
+message GetUserRolesRequest {
+  string user_id = 1;
+}
+
+message RoleList {
+  repeated string roles = 1;
+}
+
+// ── Plugin Registry ──────────────────────────────────────────────────────
+
+message GetPluginRequest {
+  string name = 1;
+}
+
+message PluginInfo {
+  string id      = 1;
+  string name    = 2;
+  string version = 3;
+  string runtime = 4;
+  string status  = 5;
+}
+
+message ListPluginsRequest {
+  string status = 1;
+}
+
+message PluginList {
+  repeated PluginInfo plugins = 1;
+}
+
+// ── System Config ─────────────────────────────────────────────────────────
+
+message GetConfigRequest {
+  string key = 1;
+}
+
+message ConfigValue {
+  string key   = 1;
+  string value = 2;  // JSON string
+}
+
+// ── Events ────────────────────────────────────────────────────────────────
+
+message EmitEventRequest {
+  string event    = 1;
+  string payload  = 2;  // JSON string
+  string trace_id = 3;
+}
+
+message EmitEventResponse {
+  bool   success  = 1;
+  string event_id = 2;
+}
