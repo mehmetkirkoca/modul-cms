@@ -17,6 +17,19 @@ services:
     networks:
       - modu-dev
 
+  content-db:
+    image: postgres:16-alpine
+    ports:
+      - '5433:5432'
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: content_db
+    volumes:
+      - content-db-dev-data:/var/lib/postgresql/data
+    networks:
+      - modu-dev
+
   redis:
     image: redis:7-alpine
     ports:
@@ -28,6 +41,7 @@ services:
 
 volumes:
   core-db-dev-data:
+  content-db-dev-data:
   redis-dev-data:
 
 networks:

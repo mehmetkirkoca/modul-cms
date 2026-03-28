@@ -3,12 +3,19 @@ import { z } from 'zod';
 import { userRepository } from '../../db/repositories/user.repository.js';
 import { requireAuth, requirePermission } from '../../auth/middleware.js';
 import { ValidationError, ForbiddenError } from '../../errors/index.js';
+import type { EventBus } from '@module-cms/sdk';
 
 const CreateUserSchema = z.object({
   email: z.string().email(),
   name: z.string().min(1).max(255),
   password: z.string().min(8),
   role: z.enum(['subscriber', 'editor', 'admin', 'super_admin']).optional(),
+});
+
+const ListQuerySchema = z.object({
+  page:    z.coerce.number().int().min(1).optional(),
+  perPage: z.coerce.number().int().min(1).max(100).optional(),
+  role:    z.enum(['subscriber', 'editor', 'admin', 'super_admin']).optional(),
 });
 
 const UpdateUserSchema = z.object({
@@ -18,7 +25,8 @@ const UpdateUserSchema = z.object({
   password: z.string().min(8).optional(),
 }).refine((d) => Object.keys(d).length > 0, { message: 'At least one field required' });
 
-export async function usersRoutes(app: FastifyInstance) {
+export async function usersRoutes(app: FastifyInstance, opts: { eventBus?: EventBus } = {}) {
+  const { eventBus } = opts;
   /**
    * GET /api/v1/users
    * Yalnızca admin+
@@ -26,11 +34,7 @@ export async function usersRoutes(app: FastifyInstance) {
   app.get('/', {
     preHandler: requirePermission('user', 'read'),
   }, async (request, reply) => {
-    const query = request.query as Record<string, string>;
-    const page = parseInt(query['page'] ?? '1', 10);
-    const perPage = Math.min(parseInt(query['perPage'] ?? '20', 10), 100);
-    const role = query['role'];
-
+    const { page = 1, perPage = 20, role } = ListQuerySchema.parse(request.query);
     const result = await userRepository.list({ page, perPage, role });
     return reply.send(result);
   });
@@ -67,6 +71,7 @@ export async function usersRoutes(app: FastifyInstance) {
     }
 
     const user = await userRepository.create(result.data);
+    void eventBus?.emit('core:user:created:v1', { userId: user.id, email: user.email, name: user.name, role: user.role });
     return reply.status(201).send({ user });
   });
 
@@ -95,6 +100,13 @@ export async function usersRoutes(app: FastifyInstance) {
     }
 
     const user = await userRepository.update(id, result.data);
+    void eventBus?.emit('core:user:updated:v1', {
+      userId: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      changedFields: Object.keys(result.data),
+    });
     return reply.send({ user });
   });
 }

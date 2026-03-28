@@ -8,12 +8,15 @@ import { authRoutes } from './api/rest/auth.routes.js';
 import { usersRoutes } from './api/rest/users.routes.js';
 import { pluginsRoutes } from './api/rest/plugins.routes.js';
 import type { PluginRegistry } from './core/plugin-registry/index.js';
+import type { EventBus } from '@module-cms/sdk';
 
 interface AppOptions {
   redis: Redis;
-  pluginRegistry: PluginRegistry;
   jwtSecret: string;
+  eventBus?: EventBus;
 }
+
+export type { FastifyInstance } from 'fastify';
 
 export async function buildApp(opts: AppOptions) {
   const app = Fastify({
@@ -43,10 +46,22 @@ export async function buildApp(opts: AppOptions) {
       return reply.status(error.status).send(error.toJSON());
     }
 
-    // Fastify validation error
+    // HTTP status errors (validation, auth, etc.)
     if (error.statusCode === 400) {
       return reply.status(400).send({
         error: 'VALIDATION_ERROR',
+        message: error.message,
+      });
+    }
+    if (error.statusCode === 401) {
+      return reply.status(401).send({
+        error: 'UNAUTHORIZED',
+        message: error.message,
+      });
+    }
+    if (error.statusCode === 403) {
+      return reply.status(403).send({
+        error: 'FORBIDDEN',
         message: error.message,
       });
     }
@@ -67,11 +82,19 @@ export async function buildApp(opts: AppOptions) {
 
   // Routes
   await app.register(authRoutes, { prefix: '/api/v1/auth', redis: opts.redis });
-  await app.register(usersRoutes, { prefix: '/api/v1/users' });
-  await app.register(pluginsRoutes, {
-    prefix: '/api/v1/plugins',
-    pluginRegistry: opts.pluginRegistry,
-  });
+  await app.register(usersRoutes, { prefix: '/api/v1/users', eventBus: opts.eventBus });
 
   return app;
 }
+
+export async function registerPluginRoutes(
+  app: Awaited<ReturnType<typeof buildApp>>,
+  pluginRegistry: PluginRegistry,
+) {
+  await app.register(pluginsRoutes, {
+    prefix: '/api/v1/plugins',
+    pluginRegistry,
+  });
+}
+
+export type AppInstance = Awaited<ReturnType<typeof buildApp>>;

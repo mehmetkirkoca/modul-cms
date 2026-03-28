@@ -42,6 +42,10 @@ export interface PluginConfig {
   runtime: 'in-process' | 'container';
 }
 
+export interface HttpRegistrar {
+  registerRoutes(prefix: string, plugin: (app: unknown, opts: unknown, done: () => void) => void): void;
+}
+
 export interface AppContext {
   eventBus: EventBus;
   coreApi: CoreApiClient;
@@ -49,4 +53,5 @@ export interface AppContext {
   settings: SettingsClient;
   logger: Logger;
   config: PluginConfig;
+  http: HttpRegistrar;
 }

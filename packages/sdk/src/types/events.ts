@@ -12,20 +12,20 @@ export interface BaseEvent {
   version: number;
 }
 
-export type EventHandler<T extends Record<string, unknown> = Record<string, unknown>> = (
+export type EventHandler<T extends object = object> = (
   payload: T,
   meta: BaseEvent,
 ) => void | Promise<void>;
 
 export interface EventBus {
   /** Sync event — in-process plugin. < 10ms zorunlu. */
-  onSync<T extends Record<string, unknown>>(event: EventName, handler: EventHandler<T>): void;
+  onSync<T extends object>(event: EventName, handler: EventHandler<T>): void;
 
   /** Async event — BullMQ queue üzerinden. Container plugin için. */
-  on<T extends Record<string, unknown>>(event: EventName, handler: EventHandler<T>): void;
+  on<T extends object>(event: EventName, handler: EventHandler<T>): void;
 
   /** Event yayma. */
-  emit<T extends Record<string, unknown>>(event: EventName, payload: T): Promise<BaseEvent>;
+  emit<T extends object>(event: EventName, payload: T): Promise<BaseEvent>;
 
   off(event: EventName, handler: EventHandler): void;
 }

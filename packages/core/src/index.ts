@@ -1,11 +1,14 @@
+import 'dotenv/config';
+import path from 'node:path';
 import { Redis } from 'ioredis';
 import { sql } from './db/client.js';
 import { CoreEventBus } from './core/event-bus/index.js';
 import { PluginRegistry } from './core/plugin-registry/index.js';
-import { buildApp } from './app.js';
+import { buildApp, registerPluginRoutes } from './app.js';
 import { createGrpcServer, startGrpcServer } from './api/grpc/server.js';
 import { userRepository } from './db/repositories/user.repository.js';
 import { permissionRepository } from './db/repositories/permission.repository.js';
+import { configRepository } from './db/repositories/config.repository.js';
 import type { AppContext } from '@module-cms/sdk';
 
 const HTTP_PORT  = parseInt(process.env.HTTP_PORT  ?? '3000', 10);
@@ -30,8 +33,10 @@ async function main() {
   await eventBus.initialize();
   console.info('[Core] EventBus initialized');
 
-  // 4. Plugin Registry
-  // AppContext factory — her in-process plugin için bir context oluşturur
+  // 4. HTTP server (Fastify) — plugin routes sonradan eklenir
+  const app = await buildApp({ redis, jwtSecret: JWT_SECRET, eventBus });
+
+  // 5. Plugin Registry
   const buildAppContext = async (manifest: { name: string; version: string; runtime: 'in-process' | 'container' }): Promise<AppContext> => ({
     eventBus,
     coreApi: {
@@ -54,12 +59,19 @@ async function main() {
         return role ? [role] : [];
       },
     },
-    db: {},  // Plugin kendi Prisma client'ını inject eder
+    db: {},
     settings: {
-      // Placeholder — Plugin Settings sistemi Faz 2'de plugin'in kendi DB'sinden gelir
-      async get() { return null; },
-      async set() {},
-      async getAll() { return {}; },
+      async get(key) { return configRepository.get(`${manifest.name}:${key}`) as Promise<never>; },
+      async set(key, value) { await configRepository.set(`${manifest.name}:${key}`, value); },
+      async getAll() {
+        const all = await configRepository.getAll();
+        const prefix = `${manifest.name}:`;
+        return Object.fromEntries(
+          Object.entries(all)
+            .filter(([k]) => k.startsWith(prefix))
+            .map(([k, v]) => [k.slice(prefix.length), v]),
+        ) as never;
+      },
     },
     logger: {
       info:  (msg, data) => console.info(`[${manifest.name}] ${msg}`, data ?? ''),
@@ -72,21 +84,38 @@ async function main() {
       version: manifest.version,
       runtime: manifest.runtime,
     },
+    http: {
+      registerRoutes(prefix, plugin) {
+        // Fastify ready olmadan önce register edilir, Fastify kuyruğa alır
+        void app.register(plugin as Parameters<typeof app.register>[0], { prefix });
+      },
+    },
   });
 
   const pluginRegistry = new PluginRegistry(eventBus, buildAppContext as Parameters<typeof PluginRegistry>[1]);
+
+  // Plugin routes + yüklü plugin'lerin route'larını register et
+  await registerPluginRoutes(app, pluginRegistry);
+
+  // Content Plugin'i yükle
+  try {
+    await pluginRegistry.register(path.resolve(process.cwd(), '../../plugins/content'));
+    console.info('[Core] Content plugin loaded');
+  } catch (err) {
+    console.warn('[Core] Content plugin not found, skipping:', (err as Error).message);
+  }
+
   console.info('[Core] Plugin Registry initialized');
 
-  // 5. HTTP server (Fastify)
-  const app = await buildApp({ redis, pluginRegistry, jwtSecret: JWT_SECRET });
+  // 6. HTTP server'ı başlat
   await app.listen({ port: HTTP_PORT, host: '0.0.0.0' });
   console.info(`[Core] HTTP server listening on port ${HTTP_PORT}`);
 
-  // 6. gRPC server
+  // 7. gRPC server
   const grpcServer = createGrpcServer(eventBus);
   await startGrpcServer(grpcServer, GRPC_PORT);
 
-  // 7. Graceful shutdown
+  // 8. Graceful shutdown
   const shutdown = async (signal: string) => {
     console.info(`[Core] ${signal} received — shutting down gracefully...`);
     await app.close();

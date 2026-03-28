@@ -50,13 +50,13 @@ export class CoreEventBus implements IEventBus {
     });
   }
 
-  onSync<T extends Record<string, unknown>>(event: EventName, handler: EventHandler<T>): void {
+  onSync<T extends object>(event: EventName, handler: EventHandler<T>): void {
     if (!this.syncHandlers.has(event)) this.syncHandlers.set(event, []);
     this.syncHandlers.get(event)!.push(handler as EventHandler);
     this.emitter.on(event, handler as EventHandler);
   }
 
-  on<T extends Record<string, unknown>>(event: EventName, handler: EventHandler<T>): void {
+  on<T extends object>(event: EventName, handler: EventHandler<T>): void {
     if (!this.asyncHandlers.has(event)) this.asyncHandlers.set(event, []);
     this.asyncHandlers.get(event)!.push(handler as EventHandler);
   }
@@ -75,7 +75,7 @@ export class CoreEventBus implements IEventBus {
     this.emitter.off(event, handler as never);
   }
 
-  async emit<T extends Record<string, unknown>>(event: EventName, payload: T): Promise<BaseEvent> {
+  async emit<T extends object>(event: EventName, payload: T): Promise<BaseEvent> {
     const meta: BaseEvent = {
       eventId: randomUUID(),
       eventName: event,
