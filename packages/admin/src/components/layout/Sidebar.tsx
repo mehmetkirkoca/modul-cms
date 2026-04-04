@@ -3,9 +3,10 @@ import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../../lib/api-client.js';
 
 interface NavItem {
-  pluginName: string;
   path: string;
+  component: string;
   label: string;
+  bundleUrl: string;
 }
 
 const coreNavItems = [
@@ -15,12 +16,10 @@ const coreNavItems = [
 ];
 
 export function Sidebar() {
-  const { data } = useQuery({
-    queryKey: ['admin-navigation'],
-    queryFn: () => apiClient.get<{ navItems: NavItem[] }>('/plugins/admin/navigation').then((r) => r.data),
+  const { data: pluginNavItems = [] } = useQuery({
+    queryKey: ['plugin-nav'],
+    queryFn: () => apiClient.get<NavItem[]>('/admin/navigation').then((r) => r.data),
   });
-
-  const pluginNavItems = data?.navItems ?? [];
 
   return (
     <aside className="w-56 bg-gray-900 text-white flex flex-col">
@@ -42,12 +41,13 @@ export function Sidebar() {
         {pluginNavItems.length > 0 && (
           <>
             <div className="pt-4 pb-1 px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-              Plugins
+              Content
             </div>
             {pluginNavItems.map((item) => (
               <Link
-                key={item.path}
-                to={item.path as '/'}
+                key={item.component}
+                to="/plugins/$component"
+                params={{ component: item.component }}
                 className="block px-3 py-2 rounded-md text-sm hover:bg-gray-700 [&.active]:bg-gray-700"
               >
                 {item.label}

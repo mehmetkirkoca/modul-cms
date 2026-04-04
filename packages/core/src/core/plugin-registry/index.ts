@@ -3,11 +3,15 @@ import { pathToFileURL } from 'node:url';
 import { existsSync } from 'node:fs';
 import { z } from 'zod';
 
-/** .ts (dev) veya .js (build) uzantısını otomatik seçerek modülü import eder */
+// eslint-disable-next-line @typescript-eslint/no-implied-eval
+const dynamicImport = new Function('url', 'return import(url)') as (url: string) => Promise<{ default: unknown }>;
+
+/** Dev'de .ts, production'da .js kullanır */
 async function loadModule(filePath: string): Promise<{ default: unknown }> {
+  const isDev = process.env.NODE_ENV !== 'production';
   const tsPath = filePath + '.ts';
-  const target = existsSync(tsPath) ? tsPath : filePath + '.js';
-  return import(pathToFileURL(target).href);
+  const target = (isDev && existsSync(tsPath)) ? tsPath : filePath + '.js';
+  return dynamicImport(pathToFileURL(target).href);
 }
 import type { Plugin, PluginManifest } from '@module-cms/sdk';
 import { pluginRepository } from '../../db/repositories/plugin.repository.js';
@@ -36,6 +40,8 @@ const ManifestSchema = z.object({
   settings: z.object({
     schema: z.record(z.unknown()),
   }).optional(),
+  upstream: z.string().optional(),
+  upstreamPrefix: z.string().optional(),
 });
 
 interface LoadedPlugin {
@@ -93,7 +99,19 @@ export class PluginRegistry {
       throw new PluginError(manifest.name, 'In-process plugin "grpc" internal communication seçemez.');
     }
 
-    // 3. DB'ye kaydet
+    // 3. Zaten bellekte yüklüyse sadece DB durumunu güncelle ve event yay
+    if (this.loaded.has(manifest.name)) {
+      await pluginRepository.setStatus(manifest.name, 'active');
+      await this.eventBus.emit('core:plugin:activated:v1', {
+        pluginName: manifest.name,
+        version: manifest.version,
+        runtime: manifest.runtime,
+      });
+      console.info(`[PluginRegistry] Already loaded, status restored: ${manifest.name}`);
+      return;
+    }
+
+    // 4. DB'ye kaydet
     await pluginRepository.register({
       name: manifest.name,
       version: manifest.version,
@@ -102,7 +120,7 @@ export class PluginRegistry {
       manifest: manifest as unknown as Record<string, unknown>,
     });
 
-    // 4. In-process plugin: dinamik import
+    // 5. In-process plugin: dinamik import
     if (manifest.runtime === 'in-process') {
       let pluginModule: { default: Plugin };
       try {
@@ -132,7 +150,7 @@ export class PluginRegistry {
 
     // Container plugin için Docker Compose yönetir — burada sadece DB kaydı yeterli.
 
-    // 5. core:plugin:activated event'i yay
+    // 6. core:plugin:activated event'i yay
     await this.eventBus.emit('core:plugin:activated:v1', {
       pluginName: manifest.name,
       version: manifest.version,
@@ -144,11 +162,14 @@ export class PluginRegistry {
 
   async unregister(name: string): Promise<void> {
     const loaded = this.loaded.get(name);
-    if (loaded?.instance.onStop) {
-      await loaded.instance.onStop();
+    try {
+      if (loaded?.instance.onStop) {
+        await loaded.instance.onStop();
+      }
+    } finally {
+      this.loaded.delete(name);
+      await pluginRepository.setStatus(name, 'inactive');
     }
-    this.loaded.delete(name);
-    await pluginRepository.setStatus(name, 'inactive');
   }
 
   getLoaded(name: string): LoadedPlugin | undefined {
@@ -167,7 +188,7 @@ export class PluginRegistry {
       const result = await loaded.instance.onHealth();
       return result;
     } catch (err) {
-      return { status: 'unhealthy', details: err };
+      return { status: 'unhealthy', details: err instanceof Error ? err.message : String(err) };
     }
   }
 }

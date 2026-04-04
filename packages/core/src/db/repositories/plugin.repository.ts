@@ -62,4 +62,8 @@ export const pluginRepository = {
   async setStatus(name: string, status: 'active' | 'inactive' | 'error'): Promise<void> {
     await db.update(pluginRegistry).set({ status }).where(eq(pluginRegistry.name, name));
   },
+
+  async remove(name: string): Promise<void> {
+    await db.delete(pluginRegistry).where(eq(pluginRegistry.name, name));
+  },
 };

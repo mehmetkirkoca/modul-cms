@@ -96,8 +96,8 @@ export class CoreEventBus implements IEventBus {
     this.emitter.emit(event, payload, meta);
 
     // 2. Async handler'ları queue'ya ekle (BullMQ)
-    const hasAsyncHandlers = (this.asyncHandlers.get(event)?.length ?? 0) > 0;
-    if (this.queue && hasAsyncHandlers) {
+    // Always publish so container plugins (out-of-process) can consume via their own workers
+    if (this.queue) {
       await this.queue.add(event, { eventName: event, payload, meta }, {
         attempts: 3,
         backoff: { type: 'exponential', delay: 1000 },
@@ -107,6 +107,7 @@ export class CoreEventBus implements IEventBus {
     }
 
     return meta;
+
   }
 
   async close(): Promise<void> {

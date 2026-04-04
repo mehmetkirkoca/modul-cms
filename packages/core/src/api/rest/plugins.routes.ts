@@ -1,8 +1,19 @@
+import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import { pluginRepository } from '../../db/repositories/plugin.repository.js';
 import { requirePermission, requireRole } from '../../auth/middleware.js';
-import { ValidationError } from '../../errors/index.js';
+import { CmsError } from '../../errors/index.js';
 import type { PluginRegistry as PluginRegistryService } from '../../core/plugin-registry/index.js';
+import { stopPlugin, deletePluginFiles } from '../../lib/container-manager.js';
+
+const PLUGINS_BASE_PATH = process.env.COMPOSE_PROJECT_ROOT
+  ? path.join(process.env.COMPOSE_PROJECT_ROOT, 'plugins')
+  : path.resolve(process.cwd(), '../../plugins');
+
+const PluginStatusSchema = z.enum(['active', 'inactive', 'error']);
+const PluginNameSchema = z.string().min(1).regex(/^[a-z0-9-]+$/, 'Plugin name must be lowercase alphanumeric with dashes');
+const RegisterBodySchema = z.object({ name: PluginNameSchema });
 
 export async function pluginsRoutes(
   app: FastifyInstance,
@@ -10,71 +21,66 @@ export async function pluginsRoutes(
 ) {
   const { pluginRegistry } = opts;
 
-  /**
-   * GET /api/v1/plugins — kayıtlı plugin listesi
-   */
   app.get('/', { preHandler: requirePermission('plugin', 'read') }, async (request, reply) => {
     const query = request.query as Record<string, string>;
-    const plugins = await pluginRepository.list(query['status']);
+    const rawStatus = query['status'];
+    if (rawStatus !== undefined) {
+      const parsed = PluginStatusSchema.safeParse(rawStatus);
+      if (!parsed.success) {
+        throw new CmsError('INVALID_STATUS', `Status must be one of: active, inactive, error`, 400);
+      }
+      const plugins = await pluginRepository.list(parsed.data);
+      return reply.send({ plugins });
+    }
+    const plugins = await pluginRepository.list();
     return reply.send({ plugins });
   });
 
-  /**
-   * GET /api/v1/plugins/:name
-   */
   app.get('/:name', { preHandler: requirePermission('plugin', 'read') }, async (request, reply) => {
     const { name } = request.params as { name: string };
+    if (!PluginNameSchema.safeParse(name).success) {
+      throw new CmsError('INVALID_PLUGIN_NAME', 'Plugin name must be lowercase alphanumeric with dashes', 400);
+    }
     const plugin = await pluginRepository.findByName(name);
     return reply.send({ plugin });
   });
 
-  /**
-   * POST /api/v1/plugins/register — hot-registration (super_admin only)
-   * Body: { path: string } — plugin dizin yolu
-   */
   app.post('/register', { preHandler: requireRole('super_admin') }, async (request, reply) => {
-    const { path } = request.body as { path: string };
-    if (!path) {
-      throw new ValidationError('path is required');
+    const parsed = RegisterBodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      throw new CmsError('INVALID_PLUGIN_NAME', parsed.error.errors[0]?.message ?? 'Invalid name', 422);
     }
 
-    await pluginRegistry.register(path);
+    const pluginPath = path.join(PLUGINS_BASE_PATH, parsed.data.name);
+    await pluginRegistry.register(pluginPath);
     return reply.status(201).send({ success: true });
   });
 
-  /**
-   * DELETE /api/v1/plugins/:name — plugin'i devre dışı bırak (super_admin only)
-   */
   app.delete('/:name', { preHandler: requireRole('super_admin') }, async (request, reply) => {
     const { name } = request.params as { name: string };
-    await pluginRegistry.unregister(name);
+    if (!PluginNameSchema.safeParse(name).success) {
+      throw new CmsError('INVALID_PLUGIN_NAME', 'Plugin name must be lowercase alphanumeric with dashes', 400);
+    }
+    const query = request.query as Record<string, string>;
+
+    if (query['remove'] === 'true') {
+      await pluginRegistry.unregister(name);
+      await stopPlugin(name);
+      await pluginRepository.remove(name);
+      await deletePluginFiles(name);
+    } else {
+      await pluginRegistry.unregister(name);
+    }
+
     return reply.send({ success: true });
   });
 
-  /**
-   * GET /api/v1/plugins/:name/health
-   */
   app.get('/:name/health', { preHandler: requirePermission('plugin', 'read') }, async (request, reply) => {
     const { name } = request.params as { name: string };
+    if (!PluginNameSchema.safeParse(name).success) {
+      throw new CmsError('INVALID_PLUGIN_NAME', 'Plugin name must be lowercase alphanumeric with dashes', 400);
+    }
     const health = await pluginRegistry.healthCheck(name);
     return reply.send(health);
-  });
-
-  /**
-   * GET /api/core/admin/navigation — admin shell için navigation items
-   * (Auth zorunlu ama herhangi bir authenticated user görebilir)
-   */
-  app.get('/admin/navigation', { preHandler: requirePermission('plugin', 'read') }, async (_request, reply) => {
-    const plugins = pluginRegistry.listLoaded();
-    const navItems = plugins.flatMap((manifest) =>
-      (manifest.adminPages ?? []).map((page) => ({
-        pluginName: manifest.name,
-        path: page.path,
-        label: page.label,
-        component: page.component,
-        icon: page.icon,
-      })),
-    );
-    return reply.send({ navItems });
   });
 }

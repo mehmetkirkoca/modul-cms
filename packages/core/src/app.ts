@@ -7,9 +7,9 @@ import { CmsError } from './errors/index.js';
 import { authRoutes } from './api/rest/auth.routes.js';
 import { usersRoutes } from './api/rest/users.routes.js';
 import { pluginsRoutes } from './api/rest/plugins.routes.js';
+import { marketplaceRoutes } from './api/rest/marketplace.routes.js';
 import { adminRoutes } from './api/rest/admin.routes.js';
 import { readFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
 import path from 'node:path';
 import type { PluginRegistry } from './core/plugin-registry/index.js';
 import type { EventBus } from '@module-cms/sdk';
@@ -97,14 +97,19 @@ export async function buildApp(opts: AppOptions) {
     if (!/^[a-z0-9-]+$/.test(name)) {
       return reply.status(400).send({ error: 'INVALID_PLUGIN_NAME' });
     }
-    const bundlePath = path.resolve(
-      process.cwd(),
-      `../../plugins/${name}/admin/dist/index.js`,
-    );
-    if (!existsSync(bundlePath)) {
-      return reply.status(404).send({ error: 'BUNDLE_NOT_FOUND' });
+    const pluginsRoot = process.env.COMPOSE_PROJECT_ROOT
+      ? path.join(process.env.COMPOSE_PROJECT_ROOT, 'plugins')
+      : path.resolve(__dirname, '../../../plugins');
+    const bundlePath = path.join(pluginsRoot, name, 'admin/dist/index.js');
+    let content: string;
+    try {
+      content = await readFile(bundlePath, 'utf-8');
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        return reply.status(404).send({ error: 'BUNDLE_NOT_FOUND' });
+      }
+      throw err;
     }
-    const content = await readFile(bundlePath, 'utf-8');
     return reply.type('application/javascript').send(content);
   });
 
@@ -119,6 +124,50 @@ export async function registerPluginRoutes(
     prefix: '/api/v1/plugins',
     pluginRegistry,
   });
+
+  await app.register(marketplaceRoutes, {
+    prefix: '/api/v1/marketplace',
+    pluginRegistry,
+  });
 }
 
 export type AppInstance = Awaited<ReturnType<typeof buildApp>>;
+
+/**
+ * Container plugin HTTP proxy.
+ * Routes {prefix}/* → upstream (e.g. http://plugin-content:4001).
+ * Uses Node's built-in fetch — no extra dependencies.
+ */
+export function registerContainerProxy(
+  app: AppInstance,
+  prefix: string,
+  upstream: string,
+): void {
+  const methods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'] as const;
+  for (const method of methods) {
+    app.route({
+      method,
+      url: `${prefix}/*`,
+      handler: async (request, reply) => {
+        const targetUrl = `${upstream}${request.url}`;
+        const headers: Record<string, string> = {};
+        for (const [key, value] of Object.entries(request.headers)) {
+          if (key === 'host' || key === 'content-length') continue;
+          if (typeof value === 'string') headers[key] = value;
+        }
+        const hasBody = !['GET', 'HEAD', 'OPTIONS'].includes(request.method);
+        const body = hasBody && request.body !== undefined
+          ? JSON.stringify(request.body)
+          : undefined;
+
+        const res = await fetch(targetUrl, { method: request.method, headers, body });
+        reply.code(res.status);
+        const ct = res.headers.get('content-type');
+        if (ct) reply.header('content-type', ct);
+        if (res.status === 204 || res.status === 304) return reply.send();
+        const text = await res.text();
+        try { return reply.send(JSON.parse(text)); } catch { return reply.send(text); }
+      },
+    });
+  }
+}

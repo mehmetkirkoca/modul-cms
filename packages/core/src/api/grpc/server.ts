@@ -1,5 +1,4 @@
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
 import { userRepository, toPublic } from '../../db/repositories/user.repository.js';
@@ -9,7 +8,6 @@ import { configRepository } from '../../db/repositories/config.repository.js';
 import { NotFoundError } from '../../errors/index.js';
 import type { CoreEventBus } from '../../core/event-bus/index.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROTO_PATH = path.resolve(__dirname, '../../../proto/core.proto');
 
 import type { PublicUser } from '../../db/repositories/user.repository.js';

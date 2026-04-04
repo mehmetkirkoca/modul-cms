@@ -3,10 +3,10 @@ version: '3.9'
 services:
   core:
     build:
-      context: ./packages/core
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: packages/core/Dockerfile
     ports:
-      - '3000:3000'   # REST + GraphQL (dış)
+      - '3000:3000'   # REST (dış)
       - '50051:50051' # gRPC (plugin'ler için iç)
     environment:
       NODE_ENV: production
@@ -16,6 +16,10 @@ services:
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-me-refresh-in-production}
       GRPC_PORT: 50051
       HTTP_PORT: 3000
+      COMPOSE_PROJECT_ROOT: /project
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/project
     depends_on:
       core-db:
         condition: service_healthy

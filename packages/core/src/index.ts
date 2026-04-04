@@ -1,15 +1,17 @@
 import 'dotenv/config';
 import path from 'node:path';
+import { readdirSync } from 'node:fs';
 import { Redis } from 'ioredis';
 import { sql } from './db/client.js';
 import { CoreEventBus } from './core/event-bus/index.js';
 import { PluginRegistry } from './core/plugin-registry/index.js';
-import { buildApp, registerPluginRoutes } from './app.js';
+import { buildApp, registerPluginRoutes, registerContainerProxy } from './app.js';
 import { createGrpcServer, startGrpcServer } from './api/grpc/server.js';
 import { userRepository } from './db/repositories/user.repository.js';
 import { permissionRepository } from './db/repositories/permission.repository.js';
 import { configRepository } from './db/repositories/config.repository.js';
 import type { AppContext } from '@module-cms/sdk';
+import { pluginRepository } from './db/repositories/plugin.repository.js';
 
 const HTTP_PORT  = parseInt(process.env.HTTP_PORT  ?? '3000', 10);
 const GRPC_PORT  = parseInt(process.env.GRPC_PORT  ?? '50051', 10);
@@ -86,26 +88,51 @@ async function main() {
     },
     http: {
       registerRoutes(prefix, plugin) {
-        // Fastify ready olmadan önce register edilir, Fastify kuyruğa alır
-        void app.register(plugin as Parameters<typeof app.register>[0], { prefix });
+        try {
+          app.register(plugin as Parameters<typeof app.register>[0], { prefix });
+        } catch {
+          app.log.warn(`Cannot register routes for prefix ${prefix} — server already started, restart required`);
+        }
       },
     },
   });
 
-  const pluginRegistry = new PluginRegistry(eventBus, buildAppContext as Parameters<typeof PluginRegistry>[1]);
+  const pluginRegistry = new PluginRegistry(eventBus, buildAppContext as ConstructorParameters<typeof PluginRegistry>[1]);
 
   // Plugin routes + yüklü plugin'lerin route'larını register et
   await registerPluginRoutes(app, pluginRegistry);
 
-  // Content Plugin'i yükle
+  // Yüklü plugin'leri otomatik register et
+  const pluginsDir = process.env.COMPOSE_PROJECT_ROOT
+    ? path.join(process.env.COMPOSE_PROJECT_ROOT, 'plugins')
+    : path.resolve(process.cwd(), '../../plugins');
   try {
-    await pluginRegistry.register(path.resolve(process.cwd(), '../../plugins/content'));
-    console.info('[Core] Content plugin loaded');
-  } catch (err) {
-    console.warn('[Core] Content plugin not found, skipping:', (err as Error).message);
+    const entries = readdirSync(pluginsDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const pluginPath = path.join(pluginsDir, entry.name);
+      try {
+        await pluginRegistry.register(pluginPath);
+        console.info(`[Core] Plugin loaded: ${entry.name}`);
+      } catch (err) {
+        console.warn(`[Core] Plugin skipped: ${entry.name} —`, (err as Error).message);
+      }
+    }
+  } catch {
+    console.warn('[Core] plugins/ directory not found, skipping auto-registration');
   }
 
   console.info('[Core] Plugin Registry initialized');
+
+  // 5b. Container plugin'lerin HTTP proxy'lerini kur
+  const activePlugins = await pluginRepository.listActive();
+  for (const plugin of activePlugins) {
+    if (plugin.runtime !== 'container') continue;
+    const manifest = plugin.manifest as { upstream?: string; upstreamPrefix?: string } | null;
+    if (!manifest?.upstream || !manifest?.upstreamPrefix) continue;
+    registerContainerProxy(app, manifest.upstreamPrefix, manifest.upstream);
+    console.info(`[Core] Proxy registered: ${manifest.upstreamPrefix} → ${manifest.upstream}`);
+  }
 
   // 6. HTTP server'ı başlat
   await app.listen({ port: HTTP_PORT, host: '0.0.0.0' });

@@ -23,6 +23,7 @@ apiClient.interceptors.response.use(
         return apiClient(original);
       } catch {
         useAuthStore.getState().logout();
+        return Promise.reject(error);
       }
     }
     return Promise.reject(error);

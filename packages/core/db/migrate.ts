@@ -9,6 +9,10 @@ import postgres from 'postgres';
 const sql = postgres(process.env.DATABASE_URL!, { max: 1 });
 const db = drizzle(sql);
 
-await migrate(db, { migrationsFolder: './db/migrations' });
-console.info('Migrations applied ✓');
-await sql.end();
+async function run() {
+  await migrate(db, { migrationsFolder: './db/migrations' });
+  console.info('Migrations applied ✓');
+  await sql.end();
+}
+
+run().catch((err) => { console.error(err); process.exit(1); });

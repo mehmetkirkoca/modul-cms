@@ -78,6 +78,10 @@ export interface PluginManifest {
     coreApi?: string;
     plugins?: string[];
   };
+
+  // Container plugin HTTP proxy — core routes {upstreamPrefix}/* → upstream
+  upstream?: string;
+  upstreamPrefix?: string;
 }
 
 export interface Plugin {
