@@ -30,6 +30,18 @@ services:
       - modu-public
     restart: unless-stopped
 
+  admin:
+    build:
+      context: .
+      dockerfile: packages/admin/Dockerfile
+    ports:
+      - '8080:80'
+    depends_on:
+      - core
+    networks:
+      - modu-public
+    restart: unless-stopped
+
   core-db:
     image: postgres:16-alpine
     environment:
